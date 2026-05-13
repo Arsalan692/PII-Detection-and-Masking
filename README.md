@@ -62,8 +62,12 @@ The pipeline is split into five distinct Python scripts, meant to be run sequent
 
 3. **Hugging Face Authentication (For LLaMA):**
    If you plan to run the LLaMA zero-shot script, you must authenticate with Hugging Face using an access token:
-   * Generate an access token on your Hugging Face account.
-   * Add the token in `LLaMa.py` on line 28: `login(token="YOUR_HUGGING_FACE_TOKEN")`.
-
-## License & Acknowledgements
-This project was developed as a case study for PII extraction mechanisms. The dataset used builds upon the WikiNeural dataset.
+   * Install the `python-dotenv` package:
+     ```bash
+     pip install python-dotenv
+     ```
+   * Create a `.env` file in the root directory.
+   * Add your token to the `.env` file:
+     ```
+     HUGGING_FACE_TOKEN="your_hugging_face_token_here"
+     ```

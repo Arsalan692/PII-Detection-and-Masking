@@ -24,8 +24,12 @@ random.seed(42)
 # Authentication and model loading
 # -----------------------------------------------------------------------------
 
+import os
+from dotenv import load_dotenv
 from huggingface_hub import login
-login(token="YOUR_HUGGING_FACE_TOKEN") # Use mat krna Securiti Team, it took 2.5 hours for the request approval of this api
+
+load_dotenv()
+login(token=os.getenv("HUGGING_FACE_TOKEN"))
 
 import torch
 from transformers import pipeline
