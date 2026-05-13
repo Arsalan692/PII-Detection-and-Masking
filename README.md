@@ -95,4 +95,3 @@ If you plan to run the `LLaMa.py` zero-shot script, you must authenticate with H
 ```env
 HUGGING_FACE_TOKEN="your_hugging_face_token_here"
 ```
-*(The `.gitignore` file is configured to ensure this file is never pushed to the repository).*
