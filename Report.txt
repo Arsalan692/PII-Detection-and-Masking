@@ -1,0 +1,121 @@
+PII Detection and Masking
+ 
+ Fine-Tuned RoBERTa vs. Zero-Shot LLaMA 1B
+ 
+1. Approach
+■ 1.1 Dataset Preparation
+The base WikiNeural dataset (28,516 train / 3,650 test entries) contained only person-name labels (B-PER, I-PER). Synthetic emails were
+injected into 15% of entries containing person names using two strategies:
+ Normal emails (~70%): single-token addresses like mweiner@nfl.com tagged B-EMAIL.
+ Spaced emails (~30%): multi-token addresses like anwar37 @ bbc . co . uk tagged B-EMAIL (first) + I-EMAIL (rest).
+Train and test use completely disjoint sentence template sets (15 each) to prevent data leakage. Single-token names are handled to avoid
+unrealistic patterns like madonna.madonna@…
+■ 1.2 Tokenization & Split
+RoBERTa tokenizer (roberta-base) with max_length=256. A critical fix assigns I-EMAIL to sub-tokens of email tokens (e.g.,
+john.doe@gmail.com → john, ., doe, @, gmail, ., com each get B-EMAIL/I-EMAIL). Stratified 90/10 split preserves the 15% email ratio. 800
+sequences (2.5%) exceeded 256 sub-tokens.
+■ 1.3 Fine-Tuning Configuration
+roberta-base (124M params) fine-tuned for 5 epochs on T4 GPU: batch 16 × 2 accumulation = effective 32, lr = 2e-5, warmup = 401 steps,
+FP16 + gradient checkpointing, early stopping (patience 2). Best model selected by validation F1. Evaluation uses seqeval (span-level P/R/F1)
+and sklearn (token-level FPR/FNR).
+■ 1.4 Zero-Shot LLM Setup
+meta-llama/Llama-3.2-1B-Instruct (float16) evaluated zero-shot with instruction-only prompt (no few-shot examples). Outputs JSON with
+extracted names and emails. Evaluated on a 325-example stratified subset (250 name-only, 75 with emails). Metrics computed at both
+sentence-level and entity-level.
+2. Results
+■ 2.1 RoBERTa — Test Set Evaluation
+Entity
+Precision
+Recall
+F1 (span)
+FPR
+FNR
+PER
+0.9282
+0.9332
+0.9307
+0.0033
+0.0619
+EMAIL
+0.9380
+0.9607
+0.9492
+0.0002
+0.0393
+ Total errors: 584 / 98,497 tokens (0.59%). Cross-entity confusions: 0. EMAIL FP: 1, EMAIL FN: 0.
+ ■ 2.2 LLaMA 1B — Zero-Shot (325-example subset)
+Entity
+P (entity)
+R (entity)
+F1 (entity)
+P (sentence)
+R (sentence)
+PER
+0.9084
+0.8038
+0.8529
+1.0000
+0.8215
+EMAIL
+0.2771
+0.8533
+0.4183
+0.3524
+0.9867
+ Hallucinations: 136/325 (41.8%). Bad JSON: 1. Spaced email format mismatches contributed to EMAIL FP.
+ ■ 2.3 Comparison
+Metric
+RoBERTa (fine-tuned)
+LLaMA 1B (zero-shot)
+Delta
+PER F1
+0.9307
+0.8529
++0.0778
+EMAIL F1
+0.9492
+0.4183
++0.5309
+Hallucinations
+0
+136/325 (41.8%)
+—
+Bad output format
+0
+1
+—
+ RoBERTa outperforms LLaMA 1B by 8–53 percentage points across all metrics, with the gap most pronounced for EMAIL detection (53 pp).
+
+3. Error Analysis
+■ RoBERTa Errors (584 total / 98,497 tokens)
+ PER FP (291): Named entities in non-person contexts — 'Le' (restaurant), 'Daniel' (biblical book), 'IIR' (filter type). Model over-generalises
+capitalisation + position cues.
+ PER FN (292): Names in quoted/compound contexts — 'Joan of Arc', 'Nemesis' (ride), 'Mounir El Hamdaoui'. Multi-word or unusual names in
+non-standard positions.
+ EMAIL FP (1): A single '.' in '42.77 %' tagged as I-EMAIL — artifact of spaced email training pattern.
+ EMAIL FN (0): Perfect recall on all test emails.
+■ LLaMA 1B Errors
+ Email hallucinations (136): Fabricated emails like drake@starboyapp.com and rihanna@rihanna.com in sentences with no emails. Also
+output empty strings as emails.
+ PER name misses (58): Less common names or names in complex sentences were missed (recall 80.4%).
+ Spaced format mismatch: LLaMA returned 'matisyahu58 @ hotmail. com' (with spaces) which didn't match reconstructed ground truth,
+inflating EMAIL FP count.
+4. Challenges
+ Hallucination is the dominant failure mode. LLaMA 1B invented plausible-looking but fictitious emails in 41.8% of non-email examples.
+Without supervised training on the target schema, the model has no calibration for when NOT to predict.
+ Format inconsistency. The model outputs spaced emails, empty strings, and occasionally malformed JSON — patterns a fine-tuned token
+classifier never produces.
+ No boundary precision. A token classifier labels each token independently giving exact span boundaries. The LLM outputs free-text strings
+requiring alignment back to original tokens, introducing errors.
+ Scale vs. accuracy trade-off. LLaMA 1B (2.5B params, 2.5 GB) produced 0.42 EMAIL F1 vs. RoBERTa (124M params, 500 MB) at 0.95 F1.
+The 20× larger model is 53 points worse on emails without fine-tuning.
+5. Recommendations
+ Address PER false negatives: Augment training with names in quoted strings, book/song titles, and compound names ('El Hamdaoui', 'of
+Arc') to improve the 6.2% PER FNR.
+ Reduce PER false positives: Add hard negative examples where capitalised words appear in non-person contexts (restaurant names, book
+titles, acronyms).
+ Increase max_length to 512: The 2.5% truncation rate means some email entities at the end of long sentences are never seen. T4 GPU can
+handle 512 with gradient checkpointing.
+ LLM improvements: For zero-shot, use a larger model (3B+), add JSON schema constraints, and post-process to remove empty strings and
+hallucinated patterns. For production PII detection, fine-tuned token classification remains strongly preferred.
+ Extend PII types: Add phone numbers, SSNs, addresses, and credit cards using the same injection + fine-tuning pipeline.
